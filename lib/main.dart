@@ -94,7 +94,7 @@ class AppsflyerCircusViewModel extends ChangeNotifier {
   void startCircus(VoidCallback onUpdate) {
     final funnyOptions = AppsFlyerOptions(
       afDevKey: "qsBLmy7dAXDQhowM8V3ca4",
-      appId: "6745818621",
+      appId: "6745902875",
       showDebug: true,
     );
     funnyFlyerSdk = AppsflyerSdk(funnyOptions);
@@ -318,9 +318,9 @@ class _FunnyMainWebScreenState extends State<FunnyMainWebScreen> {
         "fb_app_name": "ballpong",
         "app_name": "ballpong",
         "deep": null,
-        "bundle_identifier": "com.koilktoil.crickeindicator",
+        "bundle_identifier": "com.ballponng.pongballl.ballpong",
         "app_version": "1.0.0",
-        "apple_id": "6745818621",
+        "apple_id": "6745902875",
         "fcm_token": widget.pushNoseToken ?? "no_fcm_banana",
         "device_id": jungleDevice.bananaId ?? "no_banana",
         "instance_id": jungleDevice.circusInstance ?? "no_circus",
