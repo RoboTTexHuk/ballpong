@@ -109,7 +109,7 @@ class AppsflyerCircusViewModel extends ChangeNotifier {
     );
     funnyFlyerSdk?.onInstallConversionData((result) {
       clownConversion = result.toString();
-      clownId = result['payload']['af_status'].toString();
+     // clownId = result['payload']['af_status'].toString();
       onUpdate();
     });
     funnyFlyerSdk?.getAppsFlyerUID().then((val) {
