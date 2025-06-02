@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-
+import 'dart:async';
 import 'package:app_tracking_transparency/app_tracking_transparency.dart'
     show AppTrackingTransparency, TrackingStatus;
 import 'package:appsflyer_sdk/appsflyer_sdk.dart'
@@ -18,6 +18,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 import 'main_push.dart' show FunnyMainWebScreenPUSH;
 
+// --------- ATT SELECTOR (корневой экран) ----------
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
@@ -29,10 +30,138 @@ void main() async {
 
   tzData.initializeTimeZones();
 
-  runApp(const MaterialApp(home: FunnyPushInitPage()));
+  runApp(const MaterialApp(
+    home: AttOrPushInitSelector(),
+    debugShowCheckedModeBanner: false,
+  ));
 }
 
-// FCM Background Handler
+// --------- ВИДЖЕТ, который решает что показать ---------
+class AttOrPushInitSelector extends StatefulWidget {
+  const AttOrPushInitSelector({Key? key}) : super(key: key);
+
+  @override
+  State<AttOrPushInitSelector> createState() => _AttOrPushInitSelectorState();
+}
+
+class _AttOrPushInitSelectorState extends State<AttOrPushInitSelector> {
+  Widget? _child;
+
+  @override
+  void initState() {
+    super.initState();
+    _decide();
+  }
+
+  Future<void> _decide() async {
+    final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+    setState(() {
+      if (status == TrackingStatus.notDetermined) {
+        _child = const AttExplanationScreen();
+      } else {
+        _child = const FunnyPushInitPage();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _child ??
+        const Scaffold(
+          backgroundColor: Colors.black,
+          body: Center(child: CircularProgressIndicator()),
+        );
+  }
+}
+
+// --------- ЭКРАН ОБЪЯСНЕНИЯ ATT (показывается только 1 раз) ----------
+class AttExplanationScreen extends StatefulWidget {
+  const AttExplanationScreen({Key? key}) : super(key: key);
+
+  @override
+  State<AttExplanationScreen> createState() => _AttExplanationScreenState();
+}
+
+class _AttExplanationScreenState extends State<AttExplanationScreen> {
+  bool _loading = false;
+
+  Future<void> _requestAttAndGoNext() async {
+    setState(() => _loading = true);
+    try {
+      await Future.delayed(const Duration(milliseconds: 400));
+      await AppTrackingTransparency.requestTrackingAuthorization();
+    } catch (_) {}
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const FunnyPushInitPage()),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.blue.shade700,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.privacy_tip, size: 80, color: Colors.white),
+                const SizedBox(height: 32),
+                const Text(
+                  'Why do we request permission to track activity?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'We use your data to provide more relevant ads, special offers, and game bonuses. For example, we may show you discounts that match your interests or remind you about unfinished games. Your data will never be sold or shared with third parties for unrelated purposes.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white, fontSize: 15),
+                ),
+                const SizedBox(height: 32),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.blue.shade700,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: _loading ? null : _requestAttAndGoNext,
+                    child: _loading
+                        ? const SizedBox(
+                      width: 24, height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                        : const Text('Next'),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'You can always change your choice in device settings.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// --------- FCM BACKGROUND HANDLER ----------
 @pragma('vm:entry-point')
 Future<void> _pushCircusBackgroundTrampoline(RemoteMessage giggleMsg) async {
   print("🤡 BG Message: ${giggleMsg.messageId}");
@@ -109,7 +238,6 @@ class AppsflyerCircusViewModel extends ChangeNotifier {
     );
     funnyFlyerSdk?.onInstallConversionData((result) {
       clownConversion = result.toString();
-     // clownId = result['payload']['af_status'].toString();
       onUpdate();
     });
     funnyFlyerSdk?.getAppsFlyerUID().then((val) {
@@ -143,36 +271,62 @@ class FunnyPushInitPage extends StatefulWidget {
 
 class _FunnyPushInitPageState extends State<FunnyPushInitPage> {
   final pushClown = PushClownViewModel();
+  bool _navigated = false; // чтобы избежать двойного перехода
+  Timer? _timeoutTimer;
 
   @override
   void initState() {
     super.initState();
 
     pushClown.listenForBananaToken((funnyToken) {
-      setState(() {});
-      print('🥸 Push Token received: $funnyToken');
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => FunnyMainWebScreen(pushNoseToken: funnyToken),
-        ),
-      );
+      _goNext(funnyToken);
     });
+
+    _timeoutTimer = Timer(const Duration(seconds: 8), () {
+      _goNext('');
+    });
+  }
+
+  void _goNext(String token) {
+    if (_navigated) return;
+    _navigated = true;
+    _timeoutTimer?.cancel();
+    print('🥸 Push Token used: $token');
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => FunnyMainWebScreen(pushNoseToken: token),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _timeoutTimer?.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Center(child: LiquidCircularProgressIndicator(
-        value: 0.25, // Defaults to 0.5.
-        valueColor: AlwaysStoppedAnimation(Colors.pink), // Defaults to the current Theme's accentColor.
-        backgroundColor: Colors.white, // Defaults to the current Theme's backgroundColor.
-        borderColor: Colors.red,
-        borderWidth: 5.0,
-        direction: Axis.horizontal, // The direction the liquid moves (Axis.vertical = bottom to top, Axis.horizontal = left to right). Defaults to Axis.vertical.
-        center: Text("Loading..."),
-      )),
+      body: Center(
+        child: Container(
+          height: 100,
+          width: 100,
+          child: Center(
+            child: LiquidCircularProgressIndicator(
+              value: 0.25,
+              valueColor: AlwaysStoppedAnimation(Colors.pink),
+              backgroundColor: Colors.white,
+              borderColor: Colors.red,
+              borderWidth: 5.0,
+              direction: Axis.horizontal,
+              center: const Text("Loading..."),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -206,9 +360,7 @@ class _FunnyMainWebScreenState extends State<FunnyMainWebScreen> {
     circusAppsFlyer.startCircus(() => setState(() {}));
     _setupClownNotificationChannel();
     _initGadgets();
-    // Повторная инициализация ATT через 2 сек
     Future.delayed(const Duration(seconds: 2), _initMonkeyTransparency);
-    // Передача device/app данных в web через 6 сек
     Future.delayed(const Duration(seconds: 6), () {
       _sendBananaDataToWeb();
       _sendRawCircusDataToWeb();
@@ -403,4 +555,3 @@ class _FunnyMainWebScreenState extends State<FunnyMainWebScreen> {
     );
   }
 }
-
